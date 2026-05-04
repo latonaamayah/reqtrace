@@ -51,10 +51,15 @@ class LogStorage:
             return []
         records = []
         with open(self._log_file, "r", encoding="utf-8") as f:
-            for line in f:
+            for line_num, line in enumerate(f, start=1):
                 line = line.strip()
                 if line:
-                    records.append(RequestRecord.from_dict(json.loads(line)))
+                    try:
+                        records.append(RequestRecord.from_dict(json.loads(line)))
+                    except (json.JSONDecodeError, TypeError) as e:
+                        raise ValueError(
+                            f"Failed to parse record on line {line_num} of {self._log_file}: {e}"
+                        ) from e
         return records
 
     def find_by_id(self, record_id: str) -> Optional[RequestRecord]:
