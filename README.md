@@ -31,6 +31,9 @@ reqtrace record --target http://localhost:8080 --port 9090 --output session.json
 
 # Replay a captured session
 reqtrace replay --file session.json --target http://localhost:8080
+
+# Diff two captured sessions
+reqtrace diff --before baseline.json --after current.json
 ```
 
 Captured logs include method, headers, body, response status, and latency — stored as plain JSON for easy inspection and diffing.
@@ -52,6 +55,7 @@ Captured logs include method, headers, body, response status, and latency — st
 - Zero-config setup for local dev environments
 - Framework-agnostic — works with any HTTP-based service
 - Replay traffic to reproduce bugs without re-triggering upstream calls
+- Diff two sessions to spot regressions between deployments
 
 ---
 
