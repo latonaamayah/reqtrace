@@ -69,6 +69,10 @@ class LogStorage:
                 return record
         return None
 
+    def find_by_tag(self, tag: str) -> List[RequestRecord]:
+        """Return all records that have the given tag."""
+        return [record for record in self.load_all() if tag in record.tags]
+
     def clear(self) -> None:
         """Delete all stored records."""
         if self._log_file.exists():
