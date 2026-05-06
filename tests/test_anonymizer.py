@@ -87,7 +87,17 @@ def test_custom_sensitive_headers():
 
 def test_non_sensitive_headers_preserved():
     anon = Anonymizer()
-    record = make_record(request_headers={"Content-Type": "application/json", "Accept": "*/*"})
+    record = make_record(request_headers={"Content-Type": "application/json", "Accept": "text/html"})
     result = anon.anonymize(record)
     assert result.request_headers["Content-Type"] == "application/json"
-    assert result.request_headers["Accept"] == "*/*"
+    assert result.request_headers["Accept"] == "text/html"
+
+
+def test_anonymize_case_insensitive_header():
+    """Sensitive header matching should be case-insensitive."""
+    anon = Anonymizer()
+    record = make_record(request_headers={"authorization": "Bearer secret", "AUTHORIZATION": "Bearer other"})
+    result = anon.anonymize(record)
+    for key, value in result.request_headers.items():
+        if key.lower() == "authorization":
+            assert value == REDACTED
