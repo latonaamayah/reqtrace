@@ -1,13 +1,10 @@
-"""CLI entry point for reqtrace."""
+"""Main CLI entry point for reqtrace."""
 
 import argparse
 import sys
-from reqtrace.storage import LogStorage
+
 from reqtrace.filter import RecordFilter
-from reqtrace.exporter import export_json, export_csv, export_curl
-from reqtrace.summarizer import summarize, format_summary
-from reqtrace.replayer import Replayer
-from reqtrace.scorer import score_all
+from reqtrace.storage import LogStorage
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -15,100 +12,95 @@ def build_parser() -> argparse.ArgumentParser:
         prog="reqtrace",
         description="Lightweight HTTP request logger and replayer.",
     )
-    parser.add_argument("--storage", default="reqtrace_log.json", help="Storage file path")
-
+    parser.add_argument("--log-dir", default=".reqtrace", help="Log directory.")
     sub = parser.add_subparsers(dest="command")
 
     # list
-    ls = sub.add_parser("list", help="List recorded requests")
-    ls.add_argument("--method", help="Filter by HTTP method")
-    ls.add_argument("--path-prefix", dest="path_prefix", help="Filter by path prefix")
-    ls.add_argument("--status", type=int, help="Filter by status code")
+    list_p = sub.add_parser("list", help="List recorded requests.")
+    list_p.add_argument("--method", help="Filter by HTTP method.")
+    list_p.add_argument("--path-prefix", help="Filter by path prefix.")
+    list_p.add_argument("--status", type=int, help="Filter by status code.")
+    list_p.add_argument("--min-duration", type=float, default=0.0)
+    list_p.add_argument("--max-duration", type=float, default=float("inf"))
 
     # export
-    exp = sub.add_parser("export", help="Export records")
-    exp.add_argument("--format", choices=["json", "csv", "curl"], default="json")
-    exp.add_argument("--method", help="Filter by HTTP method")
-    exp.add_argument("--path-prefix", dest="path_prefix")
+    exp_p = sub.add_parser("export", help="Export recorded requests.")
+    exp_p.add_argument("--format", choices=["json", "csv", "curl"], default="json")
+    exp_p.add_argument("--method", help="Filter by HTTP method.")
+    exp_p.add_argument("--path-prefix", help="Filter by path prefix.")
+    exp_p.add_argument("--status", type=int, help="Filter by status code.")
+    exp_p.add_argument("--min-duration", type=float, default=0.0)
+    exp_p.add_argument("--max-duration", type=float, default=float("inf"))
 
-    # summary
-    sub.add_parser("summary", help="Show summary statistics")
+    # watch
+    watch_p = sub.add_parser("watch", help="Watch for new requests in real time.")
+    watch_p.add_argument("--interval", type=float, default=1.0)
 
-    # replay
-    rep = sub.add_parser("replay", help="Replay recorded requests")
-    rep.add_argument("host", help="Target host, e.g. http://localhost:8080")
-    rep.add_argument("--method", help="Filter by HTTP method")
-
-    # score
-    sc = sub.add_parser("score", help="Score records by anomaly indicators")
-    sc.add_argument("--min-score", dest="min_score", type=int, default=0)
+    # archive sub-command group
+    from reqtrace.cli_archive import build_archive_parser
+    build_archive_parser(sub)
 
     return parser
 
 
-def _load_filtered(storage: LogStorage, method=None, path_prefix=None, status=None):
+def _load_filtered(args: argparse.Namespace):
+    storage = LogStorage(args.log_dir)
     records = storage.load_all()
-    f = RecordFilter(method=method, path_prefix=path_prefix, status_code=status)
+    f = RecordFilter(
+        method=getattr(args, "method", None),
+        path_prefix=getattr(args, "path_prefix", None),
+        status_code=getattr(args, "status", None),
+        min_duration=getattr(args, "min_duration", 0.0),
+        max_duration=getattr(args, "max_duration", float("inf")),
+    )
     return f.apply(records)
 
 
-def on_record(record):
-    print(f"  [{record.response_status}] {record.method} {record.path} ({record.duration_ms}ms)")
+def on_record(record) -> None:  # pragma: no cover
+    print(f"[NEW] {record.timestamp} {record.method} {record.path} -> {record.status_code}")
 
 
-def main(argv=None):
+def main() -> None:  # pragma: no cover
     parser = build_parser()
-    args = parser.parse_args(argv)
-
-    if args.command is None:
-        parser.print_help()
-        sys.exit(0)
-
-    storage = LogStorage(args.storage)
+    args = parser.parse_args()
 
     if args.command == "list":
-        records = _load_filtered(storage, method=getattr(args, "method", None),
-                                 path_prefix=getattr(args, "path_prefix", None),
-                                 status=getattr(args, "status", None))
+        records = _load_filtered(args)
+        if not records:
+            print("No records found.")
         for r in records:
-            print(f"{r.timestamp}  [{r.response_status}] {r.method} {r.path} ({r.duration_ms}ms)")
-        print(f"\nTotal: {len(records)} record(s)")
+            print(f"{r.timestamp}  {r.method:<7} {r.path:<40} {r.status_code}  {r.duration:.3f}s")
 
     elif args.command == "export":
-        records = _load_filtered(storage, method=getattr(args, "method", None),
-                                 path_prefix=getattr(args, "path_prefix", None))
-        fmt = args.format
-        if fmt == "json":
+        from reqtrace.exporter import export_csv, export_curl, export_json
+        records = _load_filtered(args)
+        if args.format == "json":
             print(export_json(records))
-        elif fmt == "csv":
+        elif args.format == "csv":
             print(export_csv(records))
-        elif fmt == "curl":
+        else:
             print(export_curl(records))
 
-    elif args.command == "summary":
-        records = storage.load_all()
-        stats = summarize(records)
-        print(format_summary(stats))
+    elif args.command == "watch":
+        from reqtrace.watcher import StorageWatcher
+        storage = LogStorage(args.log_dir)
+        watcher = StorageWatcher(storage, on_record, interval=args.interval)
+        print(f"Watching {args.log_dir} (Ctrl-C to stop)…")
+        watcher.start()
+        try:
+            import time
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            watcher.stop()
 
-    elif args.command == "replay":
-        records = _load_filtered(storage, method=getattr(args, "method", None))
-        replayer = Replayer(args.host)
-        results = replayer.replay_all(records)
-        for res in results:
-            status = res.response_status if res.response_status else "ERR"
-            print(f"  [{status}] {res.record.method} {res.record.path}")
-        print(f"\nReplayed: {len(results)} request(s)")
+    elif args.command == "archive":
+        from reqtrace.cli_archive import run_archive
+        sys.exit(run_archive(args))
 
-    elif args.command == "score":
-        records = storage.load_all()
-        results = score_all(records, min_score=args.min_score)
-        if not results:
-            print("No records meet the minimum score threshold.")
-        for res in results:
-            print(str(res))
-            print()
-        print(f"Scored: {len(results)} record(s)")
+    else:
+        parser.print_help()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()
