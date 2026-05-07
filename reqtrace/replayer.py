@@ -65,3 +65,16 @@ class Replayer:
             response_body=response_body,
             matched=(status == record.response_status),
         )
+
+    def summary(self, results: list[ReplayResult]) -> dict:
+        """Return a summary dict with counts of matched, mismatched, and errored replays."""
+        total = len(results)
+        matched = sum(1 for r in results if r.matched)
+        errored = sum(1 for r in results if r.error is not None)
+        mismatched = total - matched - errored
+        return {
+            "total": total,
+            "matched": matched,
+            "mismatched": mismatched,
+            "errored": errored,
+        }
