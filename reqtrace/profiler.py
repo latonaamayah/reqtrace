@@ -34,6 +34,10 @@ DEFAULT_BOUNDARIES = [50, 100, 250, 500, 1000, 2500, 5000]
 
 
 def _percentile(sorted_values: List[float], pct: float) -> float:
+    """Return the *pct*-th percentile from a pre-sorted list of values.
+
+    Uses the nearest-rank method.  Returns 0.0 for an empty list.
+    """
     if not sorted_values:
         return 0.0
     idx = math.ceil(pct / 100.0 * len(sorted_values)) - 1
@@ -41,6 +45,7 @@ def _percentile(sorted_values: List[float], pct: float) -> float:
 
 
 def _bucket_label(ms: float, boundaries: List[int]) -> str:
+    """Return a human-readable bucket label for *ms* given *boundaries*."""
     for b in boundaries:
         if ms < b:
             return f"<{b}ms"
@@ -51,7 +56,17 @@ def profile(
     records: Sequence[RequestRecord],
     boundaries: List[int] | None = None,
 ) -> ProfileResult:
-    """Compute duration statistics and bucket distribution for *records*."""
+    """Compute duration statistics and bucket distribution for *records*.
+
+    Args:
+        records: Sequence of :class:`~reqtrace.storage.RequestRecord` objects.
+        boundaries: Ordered list of millisecond thresholds that define bucket
+            edges.  Defaults to :data:`DEFAULT_BOUNDARIES`.
+
+    Returns:
+        A :class:`ProfileResult` with count, min/max/mean, p50/p90/p99, and
+        a bucket histogram keyed by label strings such as ``"<100ms"``.
+    """
     if boundaries is None:
         boundaries = DEFAULT_BOUNDARIES
 
